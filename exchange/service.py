@@ -1,3 +1,4 @@
+from .announcements import Announcements
 from .audit import history
 from .catalog import Catalog
 from .db import connect
@@ -14,6 +15,7 @@ class Exchange:
         self.grants = Grants(self.connection)
         self.policies = Policies(self.connection)
         self.products = Products(self.connection)
+        self.announcements = Announcements(self.connection)
         self.delivery = Delivery(self.connection)
 
     def history(self, subject):

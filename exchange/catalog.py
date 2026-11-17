@@ -22,21 +22,33 @@ class Catalog:
             )
             write(self.connection, at, owner, "source.register", source_id, {"jurisdiction": jurisdiction})
 
-    def ingest(self, asset_id, source_id, payload, at):
+    def ingest(self, asset_id, source_id, payload, at, scenic_area=None, basis_announcement_id=None):
         source = self.connection.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
         if source is None or not source["active"]:
             raise ValueError("来源不可用")
         allowed = {row[0] for row in self.connection.execute("SELECT name FROM fields WHERE source_id=?", (source_id,))}
         if not isinstance(payload, dict) or not payload or set(payload) - allowed:
             raise ValueError("记录字段不符合来源目录")
+        if basis_announcement_id is not None:
+            announcement = self.connection.execute(
+                "SELECT id FROM announcements WHERE id=?", (basis_announcement_id,)
+            ).fetchone()
+            if announcement is None:
+                raise ValueError("公告依据不存在")
         canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         digest = hashlib.sha256(canonical.encode()).hexdigest()
         with self.connection:
             self.connection.execute(
-                "INSERT INTO assets(id,source_id,schema_version,payload,digest,received_at) VALUES(?,?,?,?,?,?)",
-                (asset_id, source_id, source["schema_version"], canonical, digest, at),
+                "INSERT INTO assets(id,source_id,schema_version,payload,digest,received_at,"
+                "scenic_area,basis_announcement_id) VALUES(?,?,?,?,?,?,?,?)",
+                (asset_id, source_id, source["schema_version"], canonical, digest, at,
+                 scenic_area, basis_announcement_id),
             )
-            write(self.connection, at, source["owner"], "asset.ingest", asset_id, {"source": source_id, "digest": digest})
+            write(
+                self.connection, at, source["owner"], "asset.ingest", asset_id,
+                {"source": source_id, "digest": digest,
+                 "scenic_area": scenic_area, "basis": basis_announcement_id},
+            )
         return digest
 
     def get(self, asset_id):

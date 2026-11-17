@@ -45,15 +45,49 @@ CREATE TABLE IF NOT EXISTS deliveries (
     input_digest TEXT NOT NULL, policy_revisions TEXT NOT NULL,
     FOREIGN KEY(product_id,product_revision) REFERENCES products(id,revision)
 );
+-- 公告：同一 notice_id 的每次发布、更正、撤回都追加一行，任何旧行不被修改。
+CREATE TABLE IF NOT EXISTS announcements (
+    id TEXT PRIMARY KEY, notice_id TEXT NOT NULL, seq INTEGER NOT NULL,
+    source_id TEXT NOT NULL REFERENCES sources(id),
+    kind TEXT NOT NULL CHECK(kind IN ('publish','correction','withdrawal')),
+    published_at TEXT NOT NULL, payload TEXT, digest TEXT,
+    UNIQUE(notice_id, seq)
+);
+-- 更正关系：仅表达版本之间的依据关系；撤回只指向被撤回的更正公告。
+CREATE TABLE IF NOT EXISTS announcement_relations (
+    announcement_id TEXT PRIMARY KEY REFERENCES announcements(id),
+    related_id TEXT NOT NULL REFERENCES announcements(id),
+    relation TEXT NOT NULL CHECK(relation IN ('corrects','withdraws'))
+);
 CREATE TABLE IF NOT EXISTS audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, actor TEXT NOT NULL,
     action TEXT NOT NULL, subject TEXT NOT NULL, details TEXT NOT NULL
 );
 """
 
+# 旧版数据库的可空扩展列：公告依据随目录条目、依据快照随交付回执一起留存。
+MIGRATIONS = {
+    "assets": {
+        "scenic_area": "ALTER TABLE assets ADD COLUMN scenic_area TEXT",
+        "basis_announcement_id": "ALTER TABLE assets ADD COLUMN basis_announcement_id TEXT REFERENCES announcements(id)",
+    },
+    "deliveries": {
+        "basis_snapshot": "ALTER TABLE deliveries ADD COLUMN basis_snapshot TEXT",
+    },
+}
+
+
+def _migrate(connection):
+    for table, columns in MIGRATIONS.items():
+        existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        for column, statement in columns.items():
+            if column not in existing:
+                connection.execute(statement)
+
 
 def connect(path):
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     connection.executescript(SCHEMA)
+    _migrate(connection)
     return connection
